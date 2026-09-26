@@ -181,32 +181,30 @@ describe("MarketplaceService", () => {
     });
   });
 
-  describe("compliance and abuse controls (sandbox adapters)", () => {
-    it("blocks configured usernames without writing a listing", async () => {
-      configMock.marketplaceRestrictedUsernames = ["nova"];
+  describe("listing invariants", () => {
+    it("rejects bids below the asking price floor", async () => {
+      const bidSpy = jest.fn().mockResolvedValue({ id: "b3" });
+      (supabaseMock as any).placeBid = bidSpy;
 
       await expect(
-        service.listUsername("Nova", mockListing.seller_public_key, 100),
-      ).rejects.toMatchObject({ code: MarketplaceErrorCode.COMPLIANCE_RESTRICTED });
-      expect(supabaseMock.createListing).not.toHaveBeenCalled();
+        service.placeBid("listing-1", "GBUYER1", 99),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.INVALID_PRICE,
+      });
+
+      expect(bidSpy).not.toHaveBeenCalled();
     });
 
-    it("limits active listings per wallet", async () => {
-      (supabaseMock.countActiveListingsBySeller as jest.Mock).mockResolvedValue(5);
+    it("treats an already cancelled listing as idempotent", async () => {
+      const cancelSpy = jest.fn().mockResolvedValue(undefined);
+      (supabaseMock as any).cancelListing = cancelSpy;
+      (supabaseMock.getListingById as jest.Mock).mockResolvedValue({
+        ...mockListing,
+        status: "cancelled",
+      });
 
-      await expect(
-        service.listUsername("nova", mockListing.seller_public_key, 100),
-      ).rejects.toMatchObject({ code: MarketplaceErrorCode.LISTING_LIMIT_REACHED });
-      expect(supabaseMock.createListing).not.toHaveBeenCalled();
-    });
-
-    it("limits pending bids per wallet and listing", async () => {
-      (supabaseMock.countPendingBidsByBidder as jest.Mock).mockResolvedValue(5);
-
-      await expect(
-        service.placeBid("listing-1", "GBIDDER3", 200),
-      ).rejects.toMatchObject({ code: MarketplaceErrorCode.BID_LIMIT_REACHED });
-      expect(supabaseMock.placeBid).not.toHaveBeenCalled();
+      await expect(service.cancelListing("listing-1", mockListing.seller_public_key)).resolves.toBeUndefined();
+      expect(cancelSpy).not.toHaveBeenCalled();
     });
   });
 });

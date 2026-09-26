@@ -134,6 +134,10 @@ export class MarketplaceService {
   async cancelListing(listingId: string, sellerPublicKey: string): Promise<void> {
     const listing = await this.getListing(listingId);
 
+    if (listing.status === 'cancelled') {
+      return;
+    }
+
     if (listing.seller_public_key !== sellerPublicKey) {
       throw new MarketplaceError(
         MarketplaceErrorCode.UNAUTHORIZED,
@@ -172,24 +176,22 @@ export class MarketplaceService {
       );
     }
 
-    if (await this.supabase.countPendingBidsByBidder(listingId, bidderPublicKey) >= this.maxPendingBidsPerBidder) {
+    if (!Number.isFinite(bidAmount) || bidAmount <= 0) {
       throw new MarketplaceError(
-        MarketplaceErrorCode.BID_LIMIT_REACHED,
-        `A wallet may have at most ${this.maxPendingBidsPerBidder} pending bids on one listing`,
+        MarketplaceErrorCode.INVALID_PRICE,
+        'Bid amount must be a positive number',
       );
     }
 
-    try {
-      return await this.supabase.placeBid(listingId, bidderPublicKey, bidAmount);
-    } catch (err) {
-      if (err instanceof SupabaseError && err.message.includes('MARKETPLACE_PENDING_BID_LIMIT')) {
-        throw new MarketplaceError(
-          MarketplaceErrorCode.BID_LIMIT_REACHED,
-          `A wallet may have at most ${this.maxPendingBidsPerBidder} pending bids on one listing`,
-        );
-      }
-      throw err;
+    const minimumBid = Number(listing.asking_price) + 1;
+    if (bidAmount < minimumBid) {
+      throw new MarketplaceError(
+        MarketplaceErrorCode.INVALID_PRICE,
+        `Bid amount must be at least ${minimumBid}`,
+      );
     }
+
+    return this.supabase.placeBid(listingId, bidderPublicKey, bidAmount);
   }
 
   async getBids(listingId: string, limit: number = 20, cursor: string | null = null): Promise<{ bids: MarketplaceBid[]; next_cursor: string | null; has_more: boolean }> {

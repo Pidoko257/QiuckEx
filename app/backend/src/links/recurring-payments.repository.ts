@@ -234,6 +234,7 @@ export class RecurringPaymentsRepository {
       totalPeriods: number | null;
       memo: string | null;
       referenceId: string | null;
+      nextExecutionDate: Date | null;
     }>,
   ): Promise<DbRecurringPaymentLink> {
     const updateData: Record<string, unknown> = {};
@@ -244,6 +245,9 @@ export class RecurringPaymentsRepository {
     if (updates.totalPeriods !== undefined) updateData.total_periods = updates.totalPeriods;
     if (updates.memo !== undefined) updateData.memo = updates.memo;
     if (updates.referenceId !== undefined) updateData.reference_id = updates.referenceId;
+    if (updates.nextExecutionDate !== undefined) {
+      updateData.next_execution_date = updates.nextExecutionDate?.toISOString();
+    }
 
     const { data, error } = await this.supabase
       .from('recurring_payment_links')
@@ -407,6 +411,21 @@ export class RecurringPaymentsRepository {
     }
 
     return data as DbRecurringPaymentExecution[];
+  }
+
+  async findExecutionById(id: string): Promise<DbRecurringPaymentExecution | null> {
+    const { data, error } = await this.supabase
+      .from('recurring_payment_executions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      this.logger.error(`Error finding execution: ${error.message}`, error.stack);
+      throw error;
+    }
+
+    return data as DbRecurringPaymentExecution | null;
   }
 
   async updateExecutionStatus(

@@ -24,6 +24,7 @@ import {
   type ActivityFilterState,
 } from "@/lib/activityFilters";
 import { PaymentHistoryFilters } from "@/components/PaymentHistoryFilters";
+import { cacheInvalidator } from "@/lib/cacheInvalidation";
 
 type DashboardResponse = {
   items: ActivityFeedItem[];
@@ -103,23 +104,21 @@ function DashboardContent() {
 
   useEffect(() => {
     void callApi(() => fetchActivityFeed(20));
-    setBidsLoading(true);
-    setBidsError(null);
-    void fetchUserBids()
-      .then(setUserBids)
-      .catch((err: unknown) => {
-        setBidsError(err instanceof Error ? err.message : "Unable to load bids.");
-      })
-      .finally(() => setBidsLoading(false));
-    setListingsLoading(true);
-    setListingsError(null);
-    void fetchUserListings()
-      .then(setUserListings)
-      .catch((err: unknown) => {
-        setListingsError(err instanceof Error ? err.message : "Unable to load listings.");
-      })
-      .finally(() => setListingsLoading(false));
-  }, [callApi, feedRetryCount]);
+    void fetchUserBids().then(setUserBids);
+    void fetchUserListings().then(setUserListings);
+
+    const unsubscribe = cacheInvalidator.subscribe((event) => {
+      if (
+        event.type === "payment_completed" ||
+        event.type === "link_created" ||
+        event.type === "activity_feed_cleared"
+      ) {
+        void callApi(() => fetchActivityFeed(20));
+        void loadMetrics();
+      }
+    });
+    return () => unsubscribe();
+  }, [callApi, feedRetryCount, loadMetrics]);
 
   useEffect(() => {
     if (!statusMessage) {
