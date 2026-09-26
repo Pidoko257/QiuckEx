@@ -44,6 +44,7 @@ export class RecurringPaymentsService {
       const link = await this.repository.createLink({
         username: dto.username || null,
         destination: dto.destination || null,
+        payerPublicKey: dto.payerPublicKey || null,
         amount: dto.amount,
         asset: dto.asset,
         assetIssuer: dto.assetIssuer || null,
@@ -292,8 +293,7 @@ export class RecurringPaymentsService {
     executionId: string,
     transactionHash: string,
   ): Promise<void> {
-    const executions = await this.repository.findExecutionsByLinkId(executionId);
-    const execution = executions.find(e => e.id === executionId);
+    const execution = await this.repository.findExecutionById(executionId);
     
     if (!execution) {
       throw new NotFoundException(`Execution not found: ${executionId}`);
@@ -352,8 +352,7 @@ export class RecurringPaymentsService {
   ): Promise<void> {
     const maxRetries = parseInt(process.env.RECURRING_PAYMENT_MAX_RETRY || '3');
 
-    const executions = await this.repository.findExecutionsByLinkId(executionId);
-    const execution = executions.find(e => e.id === executionId);
+    const execution = await this.repository.findExecutionById(executionId);
     
     if (!execution) {
       throw new NotFoundException(`Execution not found: ${executionId}`);
@@ -512,6 +511,7 @@ export class RecurringPaymentsService {
       id: link.id,
       username: link.username || undefined,
       destination: link.destination || undefined,
+      payerPublicKey: link.payer_public_key || undefined,
       amount: link.amount,
       asset: link.asset,
       assetIssuer: link.asset_issuer || undefined,
