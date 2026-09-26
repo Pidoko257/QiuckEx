@@ -7,11 +7,15 @@ import {
 } from "../src/supabase/supabase.service";
 import { MarketplaceError, MarketplaceErrorCode } from "../src/marketplace/errors";
 import { UsernamesService } from "../src/usernames/usernames.service";
+import { AppConfigService } from "../src/config";
 
 describe("MarketplaceService", () => {
   let service: MarketplaceService;
   let supabaseMock: Partial<SupabaseService>;
   let usernamesMock: Partial<UsernamesService>;
+  const configMock: Partial<AppConfigService> = {
+    marketplaceRestrictedUsernames: [],
+  };
 
   const mockListing: MarketplaceListing = {
     id: "listing-1",
@@ -55,15 +59,23 @@ describe("MarketplaceService", () => {
     supabaseMock = {
       getListingById: jest.fn().mockResolvedValue(mockListing),
       getBidsByListingIdPaginated: jest.fn().mockResolvedValue(mockBidPage),
+      getActiveListingByUsername: jest.fn().mockResolvedValue(null),
+      countActiveListingsBySeller: jest.fn().mockResolvedValue(0),
+      countPendingBidsByBidder: jest.fn().mockResolvedValue(0),
+      createListing: jest.fn().mockResolvedValue(mockListing),
+      placeBid: jest.fn().mockResolvedValue(mockBids[0]),
     };
 
-    usernamesMock = {};
+    usernamesMock = {
+      listByPublicKey: jest.fn().mockResolvedValue([{ username: "nova" }]),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketplaceService,
         { provide: SupabaseService, useValue: supabaseMock as jest.Mocked<SupabaseService> },
         { provide: UsernamesService, useValue: usernamesMock as jest.Mocked<UsernamesService> },
+        { provide: AppConfigService, useValue: configMock },
       ],
     }).compile();
 
@@ -166,6 +178,35 @@ describe("MarketplaceService", () => {
       ).rejects.toMatchObject({
         code: MarketplaceErrorCode.LISTING_NOT_FOUND,
       });
+    });
+  });
+
+  describe("compliance and abuse controls (sandbox adapters)", () => {
+    it("blocks configured usernames without writing a listing", async () => {
+      configMock.marketplaceRestrictedUsernames = ["nova"];
+
+      await expect(
+        service.listUsername("Nova", mockListing.seller_public_key, 100),
+      ).rejects.toMatchObject({ code: MarketplaceErrorCode.COMPLIANCE_RESTRICTED });
+      expect(supabaseMock.createListing).not.toHaveBeenCalled();
+    });
+
+    it("limits active listings per wallet", async () => {
+      (supabaseMock.countActiveListingsBySeller as jest.Mock).mockResolvedValue(5);
+
+      await expect(
+        service.listUsername("nova", mockListing.seller_public_key, 100),
+      ).rejects.toMatchObject({ code: MarketplaceErrorCode.LISTING_LIMIT_REACHED });
+      expect(supabaseMock.createListing).not.toHaveBeenCalled();
+    });
+
+    it("limits pending bids per wallet and listing", async () => {
+      (supabaseMock.countPendingBidsByBidder as jest.Mock).mockResolvedValue(5);
+
+      await expect(
+        service.placeBid("listing-1", "GBIDDER3", 200),
+      ).rejects.toMatchObject({ code: MarketplaceErrorCode.BID_LIMIT_REACHED });
+      expect(supabaseMock.placeBid).not.toHaveBeenCalled();
     });
   });
 });
