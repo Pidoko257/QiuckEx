@@ -108,6 +108,10 @@ export class MarketplaceService {
   async cancelListing(listingId: string, sellerPublicKey: string): Promise<void> {
     const listing = await this.getListing(listingId);
 
+    if (listing.status === 'cancelled') {
+      return;
+    }
+
     if (listing.seller_public_key !== sellerPublicKey) {
       throw new MarketplaceError(
         MarketplaceErrorCode.UNAUTHORIZED,
@@ -143,6 +147,21 @@ export class MarketplaceService {
       throw new MarketplaceError(
         MarketplaceErrorCode.SELF_BID,
         'Seller cannot bid on their own listing',
+      );
+    }
+
+    if (!Number.isFinite(bidAmount) || bidAmount <= 0) {
+      throw new MarketplaceError(
+        MarketplaceErrorCode.INVALID_PRICE,
+        'Bid amount must be a positive number',
+      );
+    }
+
+    const minimumBid = Number(listing.asking_price) + 1;
+    if (bidAmount < minimumBid) {
+      throw new MarketplaceError(
+        MarketplaceErrorCode.INVALID_PRICE,
+        `Bid amount must be at least ${minimumBid}`,
       );
     }
 
