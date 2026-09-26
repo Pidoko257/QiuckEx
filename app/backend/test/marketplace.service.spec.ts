@@ -168,4 +168,31 @@ describe("MarketplaceService", () => {
       });
     });
   });
+
+  describe("listing invariants", () => {
+    it("rejects bids below the asking price floor", async () => {
+      const bidSpy = jest.fn().mockResolvedValue({ id: "b3" });
+      (supabaseMock as any).placeBid = bidSpy;
+
+      await expect(
+        service.placeBid("listing-1", "GBUYER1", 99),
+      ).rejects.toMatchObject({
+        code: MarketplaceErrorCode.INVALID_PRICE,
+      });
+
+      expect(bidSpy).not.toHaveBeenCalled();
+    });
+
+    it("treats an already cancelled listing as idempotent", async () => {
+      const cancelSpy = jest.fn().mockResolvedValue(undefined);
+      (supabaseMock as any).cancelListing = cancelSpy;
+      (supabaseMock.getListingById as jest.Mock).mockResolvedValue({
+        ...mockListing,
+        status: "cancelled",
+      });
+
+      await expect(service.cancelListing("listing-1", mockListing.seller_public_key)).resolves.toBeUndefined();
+      expect(cancelSpy).not.toHaveBeenCalled();
+    });
+  });
 });
