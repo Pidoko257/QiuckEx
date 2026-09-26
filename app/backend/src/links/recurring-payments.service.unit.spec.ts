@@ -189,10 +189,24 @@ describe('RecurringPaymentsService', () => {
       expect(repository.updateStatus).toHaveBeenCalledWith('test-id', RecurringStatus.PAUSED);
     });
 
-    it('should throw error if link is not active', async () => {
+    it('should treat a paused link as idempotent', async () => {
       const mockLink = {
         id: 'test-id',
         status: RecurringStatus.PAUSED,
+      };
+
+      mockRepository.findById.mockResolvedValue(mockLink);
+
+      const result = await service.pauseRecurringLink('test-id');
+
+      expect(result.status).toBe(RecurringStatus.PAUSED);
+      expect(repository.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('should throw error if link is not active', async () => {
+      const mockLink = {
+        id: 'test-id',
+        status: RecurringStatus.CANCELLED,
       };
 
       mockRepository.findById.mockResolvedValue(mockLink);
@@ -206,21 +220,39 @@ describe('RecurringPaymentsService', () => {
       const mockLink = {
         id: 'test-id',
         status: RecurringStatus.PAUSED,
+        frequency: FrequencyType.MONTHLY,
       };
 
       mockRepository.findById.mockResolvedValue(mockLink);
+      mockRepository.updateLink.mockResolvedValue({ ...mockLink, next_execution_date: new Date() });
       mockRepository.updateStatus.mockResolvedValue({ ...mockLink, status: RecurringStatus.ACTIVE });
 
       const result = await service.resumeRecurringLink('test-id');
 
       expect(result.status).toBe(RecurringStatus.ACTIVE);
+      expect(repository.updateLink).toHaveBeenCalledWith('test-id', expect.objectContaining({ nextExecutionDate: expect.any(Date) }));
       expect(repository.updateStatus).toHaveBeenCalledWith('test-id', RecurringStatus.ACTIVE);
+    });
+
+    it('should treat an active link as idempotent', async () => {
+      const mockLink = {
+        id: 'test-id',
+        status: RecurringStatus.ACTIVE,
+      };
+
+      mockRepository.findById.mockResolvedValue(mockLink);
+
+      const result = await service.resumeRecurringLink('test-id');
+
+      expect(result.status).toBe(RecurringStatus.ACTIVE);
+      expect(repository.updateStatus).not.toHaveBeenCalled();
+      expect(repository.updateLink).not.toHaveBeenCalled();
     });
 
     it('should throw error if link is not paused', async () => {
       const mockLink = {
         id: 'test-id',
-        status: RecurringStatus.ACTIVE,
+        status: RecurringStatus.CANCELLED,
       };
 
       mockRepository.findById.mockResolvedValue(mockLink);

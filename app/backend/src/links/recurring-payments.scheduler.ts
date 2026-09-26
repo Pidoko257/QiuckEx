@@ -112,34 +112,39 @@ export class RecurringPaymentsScheduler implements OnModuleInit {
       }
     }
 
-    if (execution.status === 'failed') {
-      if (
-        execution.retry_count >= this.maxRetries ||
-        execution.failure_reason?.startsWith('permanent:')
-      ) {
-        return;
-      }
-      if (
-        execution.last_retry_at &&
-        Date.now() - new Date(execution.last_retry_at).getTime() < this.retryBackoffMs
-      ) {
-        return;
-      }
-      if (!(await this.repository.requeueFailedExecution(execution.id))) return;
-      execution = await this.repository.findExecutionByPeriod(linkId, periodNumber);
-      if (!execution) return;
-    }
+    try {
+      this.logger.log(`Processing recurring payment for link: ${linkId}`);
 
-    if (execution.status === 'processing') {
+      const nextPeriodNumber = link.executed_count + 1;
+      const existingExecutions = await this.repository.findExecutionsByLinkId(linkId);
+      const alreadyScheduled = existingExecutions.some(
+        (execution) => execution.period_number === nextPeriodNumber && ['pending', 'success', 'failed'].includes(execution.status),
+      );
+
+      if (alreadyScheduled) {
+        this.logger.debug(`Recurring payment execution for link ${linkId} period ${nextPeriodNumber} already exists; skipping duplicate.`);
+        return;
+      }
+
+      const execution = await this.repository.createExecution({
+        recurringLinkId: linkId,
+        periodNumber: nextPeriodNumber,
+        scheduledAt: new Date(link.next_execution_date),
+        amount: link.amount,
+        asset: link.asset,
+      });
+
+      this.logger.log(`Created execution record: ${execution.id} for period ${nextPeriodNumber}`);
       await this.executeSinglePayment(link, execution);
-      return;
-    }
-    if (execution.status !== 'pending') return;
-    if (
-      execution.last_retry_at &&
-      Date.now() - new Date(execution.last_retry_at).getTime() < this.retryBackoffMs
-    ) {
-      return;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error processing recurring payment ${linkId}: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
+
+      await this.schedulerService.markPaymentFailure(
+        linkId,
+        errorMessage,
+        0,
+      );
     }
     if (!(await this.repository.claimPendingExecution(execution.id))) return;
 
@@ -187,9 +192,8 @@ export class RecurringPaymentsScheduler implements OnModuleInit {
 
       const currentRetryCount = execution.retry_count + 1;
 
-      // Mark as failed
       await this.schedulerService.markPaymentFailure(
-        executionId,
+        execution.id,
         errorMessage,
         currentRetryCount,
       );

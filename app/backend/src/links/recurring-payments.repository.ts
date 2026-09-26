@@ -237,6 +237,7 @@ export class RecurringPaymentsRepository {
       totalPeriods: number | null;
       memo: string | null;
       referenceId: string | null;
+      nextExecutionDate: Date | null;
     }>,
   ): Promise<DbRecurringPaymentLink> {
     const updateData: Record<string, unknown> = {};
@@ -247,6 +248,9 @@ export class RecurringPaymentsRepository {
     if (updates.totalPeriods !== undefined) updateData.total_periods = updates.totalPeriods;
     if (updates.memo !== undefined) updateData.memo = updates.memo;
     if (updates.referenceId !== undefined) updateData.reference_id = updates.referenceId;
+    if (updates.nextExecutionDate !== undefined) {
+      updateData.next_execution_date = updates.nextExecutionDate?.toISOString();
+    }
 
     const { data, error } = await this.supabase
       .from('recurring_payment_links')
@@ -424,85 +428,19 @@ export class RecurringPaymentsRepository {
     return data as DbRecurringPaymentExecution[];
   }
 
-  async findExecutionById(executionId: string): Promise<DbRecurringPaymentExecution | null> {
+  async findExecutionById(id: string): Promise<DbRecurringPaymentExecution | null> {
     const { data, error } = await this.supabase
       .from('recurring_payment_executions')
       .select('*')
-      .eq('id', executionId)
-      .maybeSingle();
+      .eq('id', id)
+      .single();
 
-    if (error) {
+    if (error && error.code !== 'PGRST116') {
       this.logger.error(`Error finding execution: ${error.message}`, error.stack);
       throw error;
     }
 
     return data as DbRecurringPaymentExecution | null;
-  }
-
-  async findExecutionByPeriod(
-    linkId: string,
-    periodNumber: number,
-  ): Promise<DbRecurringPaymentExecution | null> {
-    const { data, error } = await this.supabase
-      .from('recurring_payment_executions')
-      .select('*')
-      .eq('recurring_link_id', linkId)
-      .eq('period_number', periodNumber)
-      .maybeSingle();
-
-    if (error) {
-      this.logger.error(`Error finding recurring execution: ${error.message}`, error.stack);
-      throw error;
-    }
-
-    return data as DbRecurringPaymentExecution | null;
-  }
-
-  async claimPendingExecution(executionId: string): Promise<boolean> {
-    const { data, error } = await this.supabase
-      .from('recurring_payment_executions')
-      .update({ status: ExecutionStatus.PROCESSING })
-      .eq('id', executionId)
-      .eq('status', ExecutionStatus.PENDING)
-      .select('id')
-      .maybeSingle();
-
-    if (error) {
-      this.logger.error(`Error claiming recurring execution: ${error.message}`, error.stack);
-      throw error;
-    }
-
-    return Boolean(data);
-  }
-
-  async resetProcessingExecution(executionId: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('recurring_payment_executions')
-      .update({ status: ExecutionStatus.PENDING })
-      .eq('id', executionId)
-      .eq('status', ExecutionStatus.PROCESSING);
-
-    if (error) {
-      this.logger.error(`Error releasing recurring execution claim: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  async requeueFailedExecution(executionId: string): Promise<boolean> {
-    const { data, error } = await this.supabase
-      .from('recurring_payment_executions')
-      .update({ status: ExecutionStatus.PENDING })
-      .eq('id', executionId)
-      .eq('status', ExecutionStatus.FAILED)
-      .select('id')
-      .maybeSingle();
-
-    if (error) {
-      this.logger.error(`Error requeueing recurring execution: ${error.message}`, error.stack);
-      throw error;
-    }
-
-    return Boolean(data);
   }
 
   async updateExecutionStatus(
